@@ -46,12 +46,14 @@ std::vector<uint64_t> recordIrEdges() {
     return deltas;
 }
 
+using Clock     = std::chrono::high_resolution_clock;
+using TimePoint = std::chrono::time_point<Clock>;
+
 // Thread sleep wasn't consistent enough, so I've resorted to busy waiting;
 //  For reference, when attempting to perform 34 toggles in 22.5 ms with thread
-//  sleep, I would run about 2.5 ms long.
-void busyWait(const std::chrono::duration<uint64_t, std::nano>& wait) {
-    auto start = std::chrono::high_resolution_clock::now();
-    while( std::chrono::high_resolution_clock::now() - start < wait );
+//  sleep, I would run about 2.5 ms long. With this method, I run 7 us long.
+void busyWaitUntil(const TimePoint& go_time) {
+    while( Clock::now() < go_time );
 }
 
 void replayIr(std::vector<uint64_t> deltas) {
@@ -63,15 +65,28 @@ void replayIr(std::vector<uint64_t> deltas) {
                         .add_line_settings(ir_out_line_offset, settings)
                         .do_request();
 
-    std::vector<std::chrono::duration<uint64_t, std::nano>> duration_deltas;
-    for ( auto delay: deltas )
-        duration_deltas.push_back(std::chrono::duration<uint64_t, std::nano>(delay));
+    // The pin SHOULD already be low, but let's make sure
+    line_req.set_value(ir_out_line_offset, gpiod::line::value::INACTIVE);
 
-    line_req.set_value(ir_out_line_offset, gpiod::line::value::ACTIVE);
-    for( auto delay: duration_deltas ) {
-        busyWait(delay);
+    // Build the list of times at which we will toggle the IR LED.
+    //  To allow computation time, anticipate starting 10ms in the future;
+    std::vector<TimePoint> toggle_times;
+    toggle_times.push_back( Clock::now() + std::chrono::milliseconds(10) );
+    for ( auto delay: deltas )
+        toggle_times.push_back( toggle_times.back() + std::chrono::duration<uint64_t, std::nano>(delay) );
+
+    // Debug Verify Timing; Lines 79-80 & 85-86
+    //busyWaitUntil(toggle_times.front());
+    //auto start = Clock::now();
+    for ( auto tt: toggle_times ) {
+        busyWaitUntil(tt);
         line_req.set_value( ir_out_line_offset, !line_req.get_value(ir_out_line_offset) );
     }
+    //auto replay_time = Clock::now() - start;
+    //std::cout << "\tReplay Took: " << replay_time.count() << std::endl;
+
+    // The pin SHOULD already be low, but let's make sure
+    line_req.set_value(ir_out_line_offset, gpiod::line::value::INACTIVE);
 }
 
 int main() {
