@@ -4,6 +4,9 @@
 #include <iostream>
 #include <thread>
 
+using Clock     = std::chrono::high_resolution_clock;
+using TimePoint = std::chrono::time_point<Clock>;
+
 const std::filesystem::path chip_path("/dev/gpiochip0");
 const gpiod::line::offset   ir_in_line_offset  = 4;
 const gpiod::line::offset   ir_out_line_offset = 5;
@@ -46,12 +49,7 @@ std::vector<uint64_t> recordIrEdges() {
     return deltas;
 }
 
-using Clock     = std::chrono::high_resolution_clock;
-using TimePoint = std::chrono::time_point<Clock>;
-
 // Thread sleep wasn't consistent enough, so I've resorted to busy waiting;
-//  For reference, when attempting to perform 34 toggles in 22.5 ms with thread
-//  sleep, I would run about 2.5 ms long. With this method, I run 7 us long.
 void busyWaitUntil(const TimePoint& go_time) {
     while( Clock::now() < go_time );
 }
