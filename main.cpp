@@ -31,7 +31,7 @@ std::vector<uint64_t> recordIrEdges() {
     if ( line_req.wait_edge_events(std::chrono::seconds(5)) ) {
         gpiod::edge_event_buffer buffer(100);
 
-        while ( line_req.wait_edge_events(std::chrono::milliseconds(100)) ) {
+        while ( line_req.wait_edge_events(std::chrono::milliseconds(65)) ) {
             line_req.read_edge_events(buffer);
 
             for( auto event: buffer )
@@ -75,17 +75,27 @@ void replayIr(std::vector<uint64_t> deltas) {
     for ( auto delay: deltas )
         toggle_times.push_back( toggle_times.back() + std::chrono::duration<uint64_t, std::nano>(delay) );
 
-    // Debug Verify Timing; Lines 79-80 & 85-86
-    //busyWaitUntil(toggle_times.front());
-    //auto start = Clock::now();
-    for ( auto tt: toggle_times ) {
-        busyWaitUntil(tt);
-        line_req.set_value( ir_out_line_offset, !line_req.get_value(ir_out_line_offset) );
-    }
-    //auto replay_time = Clock::now() - start;
-    //std::cout << "\tReplay Took: " << replay_time.count() << std::endl;
+    TimePoint          tp;
+    gpiod::line::value clv;
 
-    // The pin SHOULD already be low, but let's make sure
+    busyWaitUntil( toggle_times.front() );
+    for ( int i=0; i < (toggle_times.size()-1); i++ ) {
+        if ( i % 2 == 0 ) { // HIGH
+            tp  = toggle_times[i];
+            clv = gpiod::line::value::ACTIVE;
+            line_req.set_value(ir_out_line_offset, clv);
+            while ( tp < toggle_times[i+1] ) {
+                // Wait half of the 26.316 us period (38kHz)
+                busyWaitUntil( tp + std::chrono::nanoseconds(13158) );
+                tp  = Clock::now();
+                clv = !clv;
+                line_req.set_value( ir_out_line_offset, clv );
+            }
+        } else { // LOW
+            line_req.set_value(ir_out_line_offset, gpiod::line::value::INACTIVE);
+            busyWaitUntil(toggle_times[i+1]);
+        }
+    }
     line_req.set_value(ir_out_line_offset, gpiod::line::value::INACTIVE);
 }
 
